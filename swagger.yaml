@@ -1,1 +1,185 @@
+openapi: 3.0.3
+info:
+  title: Yaslilar Icin Hatirlatica API
+  description: |-
+    Yaslilara yonelik hatirlaticalari yonetmek icin bir REST API. 
+    Bu API, Flask kullanilarak olusturulan `reminder_app.py` uygulamasina dayanmaktadir.
+  version: 1.0.0
+
+servers:
+  - url: http://127.0.0.1:5000
+    description: Yerel Gelistirme Sunucusu
+
+tags:
+  - name: Reminders_Hatirlayicilar
+    description: Hatirlaticalari olusturma, listeleme ve guncelleme islemleri
+
+paths:
+  /reminders:
+    post:
+      tags:
+        - Reminders_Hatirlayicilar
+      summary: Yeni bir hatirlatica olustur (Senaryo 1)
+      description: Veritabanina yeni bir hatirlatica kaydeder ve durumunu `pending` olarak ayarlar.
+      operationId: create_reminder
+      requestBody:
+        description: Olusturulacak hatirlatica bilgileri
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewReminder'
+      responses:
+        '201':
+          description: Hatirlatica basariyla olusturuldu
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mesaj:
+                    type: string
+                    example: "Hatirlatica basariyla kaydedildi."
+                  id:
+                    type: integer
+                    description: Olusturulan yeni hatirlaticanin ID'si
+                    example: 1
+        '400':
+          description: Gecersiz veya eksik istek
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags:
+        - Reminders_Hatirlayicilar
+      summary: Tum hatirlaticalari listele (Test icin)
+      description: Veritabanindaki tum hatirlaticalari durumlarina bakilmaksizin listeler.
+      operationId: get_all_reminders
+      responses:
+        '200':
+          description: Basarili operasyon
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Reminder'
+
+  /reminders/triggered:
+    get:
+      tags:
+        - Reminders_Hatirlayicilar
+      summary: Tetiklenmis hatirlaticalari getir (Senaryo 2 - Adim 2)
+      description: |-
+        Durumu `triggered` (tetiklenmis) olan tum hatirlaticalari getirir. 
+        UI (Arayuz), bu uc noktayi periyodik olarak kontrol ederek kullaniciya alarmi gosterir.
+      operationId: get_triggered_reminders
+      responses:
+        '200':
+          description: Tetiklenmis hatirlaticalarin listesi
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Reminder'
+
+  /reminders/{reminder_id}/complete:
+    put:
+      tags:
+        - Reminders_Hatirlayicilar
+      summary: Bir hatirlaticayi tamamla (Senaryo 2 - Adim 3)
+      description: |-
+        Kullanici "Tamam, Aldim" butonuna bastiginda UI (Arayuz) tarafindan cagrilir.
+        Belirtilen ID'ye sahip hatirlaticanin durumu `completed` olarak guncellenir.
+      operationId: complete_reminder
+      parameters:
+        - name: reminder_id
+          in: path
+          required: true
+          description: 'completed' 
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Basariyla guncellendi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '404':
+          description: Hatirlatica bulunamadi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    NewReminder:
+      type: object
+      description: Yeni bir hatirlatica olusturmak icin kullanilan model
+      required:
+        - title
+        - trigger_time
+      properties:
+        title:
+          type: string
+          description: Hatirlatica basligi 
+          example: "Aksam Ilaci"
+        trigger_time:
+          type: string
+          format: date-time
+          description: Tetiklenme zamani (ISO 8601 formatinda)
+          example: "2025-11-09T19:00:00"
+        sound:
+          type: string
+          description: Kullanilacak ses tonunun adi (opsiyonel)
+          example: "Cok Yuksek Sesli Zil"
+
+    Reminder:
+      type: object
+      description: Veritabaninda saklanan tam hatirlatica modeli
+      required:
+        - id
+        - title
+        - trigger_time
+        - status
+      properties:
+        id:
+          type: integer
+          description: Hatirlaticanin benzersiz ID'si
+          example: 1
+        title:
+          type: string
+          example: "Aksam Ilaci"
+        trigger_time:
+          type: string
+          format: date-time
+          example: "2025-11-09T19:00:00"
+        sound:
+          type: string
+          example: "Cok Yuksek Sesli Zil"
+        status:
+          type: string
+          description: Hatirlaticanin mevcut durumu
+          enum: [pending, triggered, completed]
+          example: "pending"
+
+    Error:
+      type: object
+      properties:
+        hata:
+          type: string
+          description: Hata aciklamasi
+          example: "Hatirlatica bulunamadi."
+
+    Success:
+      type: object
+      properties:
+        mesaj:
+          type: string
+          description: Basarili islem aciklamasi
+          example: "Hatirlatica 'tamamlandi' olarak isaretlendi."
 
