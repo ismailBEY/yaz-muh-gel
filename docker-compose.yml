@@ -1,26 +1,25 @@
 version: '3.8'
 
 services:
-  reminder-app:
-    # İmajı oluşturacağı yer (Nokta, 'bu klasördeki Dockerfile'ı kullan' demektir)
-    build: . 
-    
-    # Konteynerin adı (Docker listesinde bu isimle görünür)
-    container_name: hatirlatici-uygulamam
-    
-    # Port Ayarı (5000'i 5000'e bağla)
+  # --- 1. BACKEND SERVİSİ (API) ---
+  reminder-api:
+    # Eski dosyanızdaki 'reminder-app' adını 'reminder-api' olarak değiştirdik
+    build: .  # Ana dizindeki Dockerfile'ı kullanır (Python)
+    container_name: reminder-backend
     ports:
-      - "5000:5000"
-    
-    # Klasör Bağlama (Volume)
-    # Buradaki nokta (.) Windows/Linux fark etmeksizin "şu anki klasör" demektir.
-    # Veritabanınız böylece korunur.
+      - "5000:5000" # API'ye dışarıdan erişim için
     volumes:
       - .:/app
-    
-    # Saat Dilimi Ayarı (İsteğe bağlı, Dockerfile'da da yapmıştık ama garanti olsun)
     environment:
       - TZ=Europe/Istanbul
-      
-    # Uygulama çökerse veya bilgisayar açılınca otomatik başlat
+    restart: always
+
+  # --- 2. FRONTEND SERVİSİ (Web Arayüzü) ---
+  reminder-web:
+    build: ./frontend # frontend klasöründeki Dockerfile'ı kullanır (Nginx)
+    container_name: reminder-frontend
+    ports:
+      - "8080:80" # Tarayıcıda 8080'e gidince konteynerin 80'ine yönlenir
+    depends_on:
+      - reminder-api # Frontend, Backend çalışmadan başlamalı
     restart: always
