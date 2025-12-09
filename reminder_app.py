@@ -2,21 +2,24 @@ import sqlite3
 import datetime
 import time
 import threading
+import jwt  # PyJWT kütüphanesi
 from flask import Flask, request, jsonify, g
+from flask_cors import CORS # Frontend iletişimi için gerekli
+from functools import wraps
 
-# --- Veritabanı Ayarları ---
+# --- Yapılandırma ---
 DATABASE = 'reminders.db'
+SECRET_KEY = 'cok_gizli_anahtar_buraya' # JWT imzalamak için gerekli gizli anahtar
 
+# --- Veritabanı Yardımcıları ---
 def get_db():
-    """Veritabanı bağlantısını açar veya mevcut olanı kullanır."""
     db = getattr(g, '_database', None)
     if db is None:
         db = g._database = sqlite3.connect(DATABASE)
-        db.row_factory = sqlite3.Row  # Satırları dict gibi erişilebilir yapar
+        db.row_factory = sqlite3.Row
     return db
 
 def init_db():
-    """Veritabanı şemasını (tabloyu) oluşturur."""
     with app.app_context():
         db = get_db()
         cursor = db.cursor()
@@ -26,63 +29,88 @@ def init_db():
             title TEXT NOT NULL,
             trigger_time TEXT NOT NULL,
             sound TEXT,
-            status TEXT NOT NULL DEFAULT 'pending' 
-            -- Olası durumlar: pending (beklemede), triggered (tetiklendi), completed (tamamlandı)
+            status TEXT NOT NULL DEFAULT 'pending'
         );
         """)
         db.commit()
         print("Veritabanı başarıyla başlatıldı.")
 
-# --- Flask Uygulaması ve API Uç Noktaları ---
-
 app = Flask(__name__)
+# CORS'u aktif et (Tüm domainlerden gelen isteklere izin ver)
+CORS(app) 
+app.config['SECRET_KEY'] = SECRET_KEY
 
 @app.teardown_appcontext
 def close_connection(exception):
-    """Her istek sonunda veritabanı bağlantısını kapatır."""
     db = getattr(g, '_database', None)
     if db is not None:
         db.close()
 
-# --- YENİ EKLENEN ÖZELLİKLER (Buraya taşındı) ---
+# --- GÜVENLİK (AUTH) DECORATOR ---
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        # Header'da 'Authorization: Bearer <token>' formatı aranır
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            if auth_header.startswith('Bearer '):
+                token = auth_header.split(" ")[1]
+        
+        if not token:
+            return jsonify({'message': 'Token eksik! Lütfen giriş yapın.'}), 401
+
+        try:
+            # Token'ı çözümle
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            # İsteğe bağlı: data['user'] ile kullanıcı kontrolü yapılabilir
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token süresi dolmuş.'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'message': 'Geçersiz Token.'}), 401
+
+        return f(*args, **kwargs)
+    return decorated
+
+# --- AUTH ENDPOINT ---
+@app.route('/login', methods=['POST'])
+def login():
+    """Kullanıcı adı ve şifre ile Token alma noktası."""
+    auth = request.get_json()
+
+    # Basitlik için hardcoded kullanıcı: admin / password: 1234
+    if not auth or not auth.get('username') or not auth.get('password'):
+        return jsonify({'message': 'Kullanıcı adı ve şifre gerekli'}), 401
+
+    if auth['username'] == 'admin' and auth['password'] == '1234':
+        # Token oluştur (30 dakika geçerli)
+        token = jwt.encode({
+            'user': auth['username'],
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=30)
+        }, app.config['SECRET_KEY'], algorithm="HS256")
+
+        return jsonify({'token': token})
+
+    return jsonify({'message': 'Giriş başarısız! (Kullanıcı: admin, Şifre: 1234 deneyin)'}), 401
+
+# --- API ENDPOINTLERİ ---
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """
-    Sistemin çalışıp çalışmadığını kontrol etmek için basit bir endpoint.
-    Ödev gereği yeni özellik olarak eklendi.
-    """
-    return jsonify({
-        "status": "active",
-        "message": "Sistem sorunsuz çalışıyor.",
-        "time": datetime.datetime.now().isoformat()
-    }), 200
+    return jsonify({"status": "active", "message": "Backend çalışıyor."}), 200
 
-@app.route('/')
-def home():
-    """Ana sayfa mesajı."""
-    return "Merhaba! Hatırlatıcı Uygulaması Çalışıyor. /health adresinden durumu kontrol edebilirsiniz."
-
-# --- Mevcut API Endpointleri ---
-
+# [GÜVENLİ] Sadece token sahipleri hatırlatıcı ekleyebilir
 @app.route('/reminders', methods=['POST'])
+@token_required 
 def create_reminder():
-    """Yeni bir hatırlatıcı oluşturur."""
     data = request.get_json()
-    
-    if not data or not data.get('title') or not data.get('trigger_time'):
-        return jsonify({"hata": "Eksik bilgi: 'title' ve 'trigger_time' zorunludur."}), 400
-
     title = data.get('title')
     trigger_time_str = data.get('trigger_time')
-    sound = data.get('sound', 'default') # Opsiyonel ses tonu
-    status = 'pending' # Yeni hatırlatıcı her zaman beklemede başlar
+    sound = data.get('sound', 'default')
+    status = 'pending'
 
-    # Zaman formatı doğrulaması
-    try:
-        datetime.datetime.fromisoformat(trigger_time_str)
-    except ValueError:
-        return jsonify({"hata": "Geçersiz 'trigger_time' formatı. ISO formatı kullanın (YYYY-MM-DDTHH:MM:SS)."}), 400
+    if not title or not trigger_time_str:
+        return jsonify({"hata": "Eksik bilgi."}), 400
 
     db = get_db()
     cursor = db.cursor()
@@ -91,108 +119,44 @@ def create_reminder():
         (title, trigger_time_str, sound, status)
     )
     db.commit()
-    
-    reminder_id = cursor.lastrowid
-    print(f"[API] Yeni hatırlatıcı kaydedildi (ID: {reminder_id}): {title}")
-    
-    return jsonify({"mesaj": "Hatırlatıcı başarıyla kaydedildi.", "id": reminder_id}), 201
+    return jsonify({"mesaj": "Hatırlatıcı kaydedildi.", "id": cursor.lastrowid}), 201
 
-
-@app.route('/reminders/triggered', methods=['GET'])
-def get_triggered_reminders():
-    """Durumu 'triggered' (tetiklenmiş) olan tüm hatırlatıcıları getirir."""
+# [HERKESE AÇIK] Herkes listeyi görebilir (Okuma izni)
+@app.route('/reminders', methods=['GET'])
+def get_all_reminders():
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("SELECT * FROM reminders WHERE status = 'triggered'")
+    cursor.execute("SELECT * FROM reminders ORDER BY id DESC")
     reminders = [dict(row) for row in cursor.fetchall()]
     return jsonify(reminders), 200
 
 @app.route('/reminders/<int:reminder_id>/complete', methods=['PUT'])
 def complete_reminder(reminder_id):
-    """Hatırlatıcının durumunu 'completed' (tamamlandı) olarak günceller."""
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("SELECT * FROM reminders WHERE id = ?", (reminder_id,))
-    reminder = cursor.fetchone()
-
-    if reminder is None:
-        return jsonify({"hata": "Hatırlatıcı bulunamadı."}), 404
-
     cursor.execute("UPDATE reminders SET status = 'completed' WHERE id = ?", (reminder_id,))
     db.commit()
-    
-    print(f"[API] Hatırlatıcı tamamlandı (ID: {reminder_id})")
-    return jsonify({"mesaj": "Hatırlatıcı 'tamamlandı' olarak işaretlendi."}), 200
+    return jsonify({"mesaj": "Tamamlandı."}), 200
 
-@app.route('/reminders', methods=['GET'])
-def get_all_reminders():
-    """Tüm hatırlatıcıları listeler (test için)."""
-    db = get_db()
-    cursor = db.cursor()
-    cursor.execute("SELECT * FROM reminders")
-    reminders = [dict(row) for row in cursor.fetchall()]
-    return jsonify(reminders), 200
-
-
-# --- Zamanlayıcı (Scheduler) Mantığı ---
+# --- ZAMANLAYICI ---
 def reminder_scheduler():
-    """
-    Veritabanını periyodik olarak kontrol eder, zamanı gelen 'pending'
-    hatırlatıcıları 'triggered' durumuna geçirir.
-    """
-    print("[Zamanlayıcı] Hatırlatıcı kontrol servisi başlatıldı...")
+    print("[Zamanlayıcı] Başlatıldı...")
     while True:
         try:
-            # Ayrı bir thread olduğu için kendi veritabanı bağlantısını yönetmeli
             with sqlite3.connect(DATABASE) as db:
                 db.row_factory = sqlite3.Row
                 cursor = db.cursor()
-                
                 now_iso = datetime.datetime.now().isoformat()
-                
-                # Zamanı gelmiş ve hala 'pending' olanları bul
-                cursor.execute(
-                    "SELECT * FROM reminders WHERE status = 'pending' AND trigger_time <= ?", 
-                    (now_iso,)
-                )
-                
-                reminders_to_trigger = cursor.fetchall()
-                
-                for reminder in reminders_to_trigger:
-                    print("\n" + "="*40)
-                    print(f"!!! ALARM TETİKLENDİ (ID: {reminder['id']}) !!!")
-                    print(f"    Başlık: {reminder['title']}")
-                    print(f"    Zaman: {reminder['trigger_time']}")
-                    print(f"    Ses: {reminder['sound']}")
-                    print("="*40 + "\n")
-                    
-                    # Durumu 'triggered' olarak güncelle
+                cursor.execute("SELECT * FROM reminders WHERE status = 'pending' AND trigger_time <= ?", (now_iso,))
+                for reminder in cursor.fetchall():
+                    print(f"\n!!! ALARM: {reminder['title']} !!!\n")
                     cursor.execute("UPDATE reminders SET status = 'triggered' WHERE id = ?", (reminder['id'],))
                     db.commit()
-
         except Exception as e:
-            print(f"[Zamanlayıcı] Hata: {e}")
-            
-        # Kontrol sıklığı (demo için 10 saniye)
+            print(f"Hata: {e}")
         time.sleep(10)
 
-
-# --- Ana Çalıştırma Bloğu ---
 if __name__ == '__main__':
-    # Flask'ı çalıştırmadan önce veritabanını başlat
     init_db()
-    
-    # Zamanlayıcıyı ayrı bir 'daemon' thread olarak başlat
-    scheduler_thread = threading.Thread(target=reminder_scheduler, daemon=True)
-    scheduler_thread.start()
-    
-    # Flask sunucusunu başlat
-    print("[Flask] API sunucusu http://127.0.0.1:5000 adresinde başlatılıyor...")
-    
-    # app.run() EN SONDA OLMALIDIR. Bu komut çalıştığında kod burada döngüye girer.
-    app.run(
-        debug=True,
-        host="0.0.0.0",
-        port=5000,
-        use_reloader=False
-    )
+    threading.Thread(target=reminder_scheduler, daemon=True).start()
+    app.run(host="0.0.0.0", port=5000, use_reloader=False)  
