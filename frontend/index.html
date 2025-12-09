@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Hatırlatıcı Uygulaması</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .box { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
+        .hidden { display: none; }
+        button { cursor: pointer; background: #007bff; color: white; border: none; padding: 5px 10px; }
+        button:hover { background: #0056b3; }
+        .completed { text-decoration: line-through; color: gray; }
+    </style>
+</head>
+<body>
+    <h1>Hatırlatıcı Paneli</h1>
+
+    <div id="login-section" class="box">
+        <h3>Giriş Yap (Token Al)</h3>
+        <input type="text" id="username" placeholder="Kullanıcı Adı (admin)" value="admin">
+        <input type="password" id="password" placeholder="Şifre (1234)" value="1234">
+        <button onclick="login()">Giriş Yap</button>
+        <p id="login-msg"></p>
+    </div>
+
+    <div id="app-section" class="box hidden">
+        <h3>Yeni Hatırlatıcı Ekle <span style="font-size:12px; color:green">(Token Aktif)</span></h3>
+        <input type="text" id="title" placeholder="Hatırlatıcı başlığı">
+        <input type="datetime-local" id="time" step="1">
+        <button onclick="addReminder()">Kaydet</button>
+        <button onclick="logout()" style="background:red; float:right">Çıkış</button>
+    </div>
+
+    <div class="box">
+        <h3>Hatırlatıcı Listesi</h3>
+        <button onclick="loadReminders()">Listeyi Yenile</button>
+        <ul id="reminder-list"></ul>
+    </div>
+
+    <script>
+        const API_URL = "http://localhost:5000"; // Docker backend adresi
+        let token = localStorage.getItem('token');
+
+        function checkAuth() {
+            if (token) {
+                document.getElementById('login-section').classList.add('hidden');
+                document.getElementById('app-section').classList.remove('hidden');
+            } else {
+                document.getElementById('login-section').classList.remove('hidden');
+                document.getElementById('app-section').classList.add('hidden');
+            }
+        }
+
+        async function login() {
+            const u = document.getElementById('username').value;
+            const p = document.getElementById('password').value;
+            
+            try {
+                const res = await fetch(`${API_URL}/login`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: u, password: p})
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    token = data.token;
+                    localStorage.setItem('token', token);
+                    document.getElementById('login-msg').innerText = "Giriş Başarılı!";
+                    checkAuth();
+                } else {
+                    document.getElementById('login-msg').innerText = data.message;
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        function logout() {
+            localStorage.removeItem('token');
+            token = null;
+            checkAuth();
+        }
+
+        async function addReminder() {
+            const title = document.getElementById('title').value;
+            const timeVal = document.getElementById('time').value; // YYYY-MM-DDTHH:MM
+            
+            // Backend ISO formatı istiyor, saniye ekleyelim
+            const isoTime = timeVal + ":00"; 
+
+            const res = await fetch(`${API_URL}/reminders`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` // Token burada gönderiliyor
+                },
+                body: JSON.stringify({title: title, trigger_time: isoTime})
+            });
+
+            if (res.ok) {
+                alert("Eklendi!");
+                loadReminders();
+            } else {
+                const err = await res.json();
+                alert("Hata: " + (err.message || err.hata));
+            }
+        }
+
+        async function loadReminders() {
+            const res = await fetch(`${API_URL}/reminders`);
+            const data = await res.json();
+            const list = document.getElementById('reminder-list');
+            list.innerHTML = "";
+            data.forEach(r => {
+                const li = document.createElement('li');
+                li.innerHTML = `[${r.status}] <b>${r.title}</b> - ${r.trigger_time}`;
+                if(r.status === 'completed') li.classList.add('completed');
+                list.appendChild(li);
+            });
+        }
+
+        // Başlangıçta çalıştır
+        checkAuth();
+        loadReminders();
+    </script>
+</body>
+</html>
