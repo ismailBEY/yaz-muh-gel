@@ -1,25 +1,33 @@
 version: '3.8'
 
 services:
-  # --- 1. BACKEND SERVİSİ (API) ---
-  reminder-api:
-    # Eski dosyanızdaki 'reminder-app' adını 'reminder-api' olarak değiştirdik
-    build: .  # Ana dizindeki Dockerfile'ı kullanır (Python)
-    container_name: reminder-backend
+  reminder-backend:
+    build: .
     ports:
-      - "5000:5000" # API'ye dışarıdan erişim için
+      - "5000:5000"
+    depends_on:
+      - db  # Veritabanı başlamadan uygulama başlamasın (sıralama için)
+    environment:
+      - DB_HOST=db             # Docker ağındaki servis adı
+      - DB_NAME=reminders_db
+      - DB_USER=admin
+      - DB_PASS=sifre123
     volumes:
       - .:/app
-    environment:
-      - TZ=Europe/Istanbul
-    restart: always
 
-  # --- 2. FRONTEND SERVİSİ (Web Arayüzü) ---
-  reminder-web:
-    build: ./frontend # frontend klasöründeki Dockerfile'ı kullanır (Nginx)
-    container_name: reminder-frontend
-    ports:
-      - "8080:80" # Tarayıcıda 8080'e gidince konteynerin 80'ine yönlenir
-    depends_on:
-      - reminder-api # Frontend, Backend çalışmadan başlamalı
+  db:
+    image: postgres:15-alpine
     restart: always
+    environment:
+      - POSTGRES_DB=reminders_db
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=sifre123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Portu dışarı açmaya gerek yok, backend içeriden erişecek.
+    # Ancak veritabanını dışarıdan (örn: DBeaver) görmek isterseniz şunu açın:
+    # ports:
+    #   - "5432:5432"
+
+volumes:
+  postgres_data:  # Veriler konteyner silinse bile kaybolmasın diye
