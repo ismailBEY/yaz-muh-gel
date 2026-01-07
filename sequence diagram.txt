@@ -1,0 +1,61 @@
+Yaşlılara yönelik hatırlatma amaçlı bir bildirim uygulaması.kişi bir alarm kurar , alarm zamanı geldiğinde tetiklenir ve çalar.
+
+sequenceDiagram
+    participant UK as Yasli Kullanici
+    participant UI as Uygulama Arayuzu
+    participant APP as Uygulama Mantigi
+    participant DB as Veritabani
+    participant OS as Isletim Sistemi (Bildirim)
+
+    title Yaslilar Icin Hatirlatici - Senaryo 1: Yeni Hatirlatici Kurma
+
+    UK->>+UI: "Yeni Hatirlatici Ekle" butonuna basar (orn: buyuk '+' ikonu)
+    UI->>+APP: Yeni hatirlatici olusturma istegi
+    APP->>-UI: Hatirlatici detay ekranini goster
+    
+    UK->>UI: Bilgileri girer (orn: "Aksam Ilaci", "19:00", Tekrar: "Her Gun")
+    UK->>UI: Ses tonu secer (orn: "Cok Yuksek Sesli Zil")
+    UK->>+UI: "Kaydet" butonuna basar
+    
+    UI->>+APP: Hatirlatici bilgilerini gonder (Ilac, 19:00, Yuksek Ses)
+    APP->>APP: Bilgileri dogrular (orn: saat gecerli mi?)
+    
+    APP->>+DB: Hatirlaticiyi kaydet (Detaylar: Aksam Ilaci, 19:00)
+    DB-->>-APP: Kayit basarili (ID: 123)
+    
+    APP->>+OS: Bildirimi/Alarmi kur (Icerik ID: 123, Saat: 19:00, Ses: "yuksek_ses.mp3")
+    OS-->>-APP: Alarm basariyla kuruldu
+    
+    APP->>-UI: "Hatirlatici Kaydedildi" onayi
+    UI->>-UK: Onay mesajini gosterir (orn: Yesil tik isareti)
+
+sequenceDiagram
+    participant UK as Yasli Kullanici
+    participant UI as Uygulama Arayuzu
+    participant APP as Uygulama Mantigi
+    participant DB as Veritabani
+    participant OS as Isletim Sistemi (Bildirim)
+
+    title Yaslilar Icin Hatirlatici - Senaryo 2: Bildirimin Alinmasi
+    
+    OS->>APP: Alarm tetiklendi (ID: 123)
+    APP->>DB: Hatirlatici detaylarini getir (ID: 123)
+    DB-->>APP: Detaylar ("Aksam Ilaci", "Yuksek Ses")
+    
+    APP->>OS: Bildirimi goster (Baslik: "ILAC VAKTI!", Mesaj: "Aksam Ilaci")
+    OS-->>UK: Bildirimi gosterir (Ekran acilir, yuksek sesle calar)
+    
+    UK->>OS: Bildirime tiklar / "Tamam" butonuna basar
+    OS->>APP: Kullanici bildirimi acti/onayladi
+    
+    APP->>UI: Uygulamayi ac ve onay ekranini goster
+    UI-->>UK: Buyuk "Tamam, Aldim" ve "Ertele" butonlarini gosterir
+    
+    UK->>UI: "Tamam, Aldim" butonuna basar
+    UI->>APP: Kullanici hatirlaticiyi onayladi
+    
+    APP->>DB: Hatirlaticiyi "tamamlandi" olarak isaretle (ID: 123)
+    DB-->>APP: Basariyla isaretlendi
+    
+    APP->>UI: Ekrani kapat / Ana ekrana don
+    UI-->>UK: Ana ekrana doner
